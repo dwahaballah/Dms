@@ -1,32 +1,72 @@
 import React, { useState, useEffect } from 'react';
 
-import { Button } from "@/components/ui/button";
+import { Card } from '@/components/ui/card';
 
-import { Card } from "@/components/ui/card";
+import { Button } from '@/components/ui/button';
 
-import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from '@/components/ui/scroll-area';
 
-import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from '@/components/ui/badge';
 
-import { useToast } from "@/hooks/use-toast";
+import { Input } from '@/components/ui/input';
 
-import { filesApi, UserFile } from "@/lib/api";
+import { Upload, Search, FileText, Image, File, Trash2, Eye } from 'lucide-react';
 
-import { Upload, File, Trash2, Eye } from "lucide-react";
+import { filesApi, UserFile } from '@/lib/api';
+
+import { useToast } from '@/hooks/use-toast';
  
-interface FileManagerProps {
+interface FileItem {
 
-  selectedFiles: UserFile[];
+  id: string;
 
-  onFilesChange: (files: UserFile[]) => void;
+  name: string;
+
+  type: string;
+
+  size: string;
+
+  uploadDate: string;
+
+  pages?: number;
 
 }
  
-export const FileManager: React.FC<FileManagerProps> = ({ selectedFiles, onFilesChange }) => {
+interface FileManagerProps {
 
-  const [files, setFiles] = useState<UserFile[]>([]);
+  selectedFiles: string[];
 
-  const [uploading, setUploading] = useState(false);
+  onSelectFiles: (files: string[]) => void;
+
+}
+ 
+const convertUserFileToFileItem = (userFile: UserFile): FileItem => ({
+
+  id: userFile.id,
+
+  name: userFile.filename,
+
+  type: userFile.file_type,
+
+  size: `${(userFile.file_size / (1024 * 1024)).toFixed(1)} MB`,
+
+  uploadDate: new Date(userFile.uploaded_at).toISOString().split('T')[0],
+
+});
+ 
+export const FileManager: React.FC<FileManagerProps> = ({
+
+  selectedFiles,
+
+  onSelectFiles
+
+}) => {
+
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const [files, setFiles] = useState<FileItem[]>([]);
+
+  const [isUploading, setIsUploading] = useState(false);
 
   const { toast } = useToast();
  
@@ -40,41 +80,11 @@ export const FileManager: React.FC<FileManagerProps> = ({ selectedFiles, onFiles
 
     try {
 
-      // Mock data for now since backend is not accessible
+      const userFiles = await filesApi.getUserFiles();
 
-      const mockFiles: UserFile[] = [
+      const fileItems = userFiles.map(convertUserFileToFileItem);
 
-        {
-
-          id: '1',
-
-          filename: 'document1.pdf',
-
-          file_type: 'application/pdf',
-
-          file_size: 1024000,
-
-          uploaded_at: new Date().toISOString(),
-
-        },
-
-        {
-
-          id: '2', 
-
-          filename: 'spreadsheet.xlsx',
-
-          file_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-
-          file_size: 512000,
-
-          uploaded_at: new Date().toISOString(),
-
-        }
-
-      ];
-
-      setFiles(mockFiles);
+      setFiles(fileItems);
 
     } catch (error) {
 
@@ -94,37 +104,25 @@ export const FileManager: React.FC<FileManagerProps> = ({ selectedFiles, onFiles
  
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
 
-    const uploadedFiles = event.target.files;
+    const file = event.target.files?.[0];
 
-    if (!uploadedFiles) return;
+    if (!file) return;
  
-    setUploading(true);
+    setIsUploading(true);
 
     try {
 
-      // Mock file upload for now
+      const uploadedFile = await filesApi.uploadFile(file);
 
-      const newFiles: UserFile[] = Array.from(uploadedFiles).map((file, index) => ({
+      const newFileItem = convertUserFileToFileItem(uploadedFile);
 
-        id: Date.now().toString() + index,
-
-        filename: file.name,
-
-        file_type: file.type,
-
-        file_size: file.size,
-
-        uploaded_at: new Date().toISOString(),
-
-      }));
-
-      setFiles(prev => [...prev, ...newFiles]);
+      setFiles(prev => [newFileItem, ...prev]);
 
       toast({
 
         title: "Success",
 
-        description: `${newFiles.length} file(s) uploaded successfully`,
+        description: "File uploaded successfully",
 
       });
 
@@ -134,7 +132,7 @@ export const FileManager: React.FC<FileManagerProps> = ({ selectedFiles, onFiles
 
         title: "Error",
 
-        description: "Failed to upload files",
+        description: "Failed to upload file",
 
         variant: "destructive",
 
@@ -142,23 +140,11 @@ export const FileManager: React.FC<FileManagerProps> = ({ selectedFiles, onFiles
 
     } finally {
 
-      setUploading(false);
+      setIsUploading(false);
+
+      // Reset the input
 
       event.target.value = '';
-
-    }
-
-  };
- 
-  const handleFileSelect = (file: UserFile, checked: boolean) => {
-
-    if (checked) {
-
-      onFilesChange([...selectedFiles, file]);
-
-    } else {
-
-      onFilesChange(selectedFiles.filter(f => f.id !== file.id));
 
     }
 
@@ -168,11 +154,17 @@ export const FileManager: React.FC<FileManagerProps> = ({ selectedFiles, onFiles
 
     try {
 
-      // Mock delete for now
+      await filesApi.deleteFile(fileId);
+
+      const deletedFile = files.find(f => f.id === fileId);
 
       setFiles(prev => prev.filter(f => f.id !== fileId));
 
-      onFilesChange(selectedFiles.filter(f => f.id !== fileId));
+      if (deletedFile) {
+
+        onSelectFiles(selectedFiles.filter(name => name !== deletedFile.name));
+
+      }
 
       toast({
 
@@ -198,131 +190,261 @@ export const FileManager: React.FC<FileManagerProps> = ({ selectedFiles, onFiles
 
   };
  
-  const formatFileSize = (bytes: number) => {
+  const getFileIcon = (type: string) => {
 
-    if (bytes === 0) return '0 Bytes';
+    if (type === 'image' || ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(type.toLowerCase())) {
 
-    const k = 1024;
+      return <Image className="h-4 w-4" />;
 
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    }
 
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    if (['pdf', 'doc', 'docx', 'txt', 'markdown', 'md'].includes(type.toLowerCase())) {
 
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+      return <FileText className="h-4 w-4" />;
+
+    }
+
+    return <File className="h-4 w-4" />;
+
+  };
+ 
+  const filteredFiles = files.filter(file =>
+
+    file.name.toLowerCase().includes(searchQuery.toLowerCase())
+
+  );
+ 
+  const toggleFileSelection = (fileName: string) => {
+
+    const isSelected = selectedFiles.includes(fileName);
+
+    if (isSelected) {
+
+      onSelectFiles(selectedFiles.filter(f => f !== fileName));
+
+    } else {
+
+      onSelectFiles([...selectedFiles, fileName]);
+
+    }
 
   };
  
   return (
-<div className="space-y-4">
-<div className="flex items-center gap-2">
+<div className="h-full flex flex-col">
+
+      {/* Header */}
+<div className="p-4 border-b border-border">
+<div className="flex items-center justify-between mb-3">
+<h3 className="font-semibold text-foreground">Files</h3>
+<label htmlFor="file-upload">
+<Button 
+
+              size="sm" 
+
+              variant="outline" 
+
+              className="h-8 gap-2" 
+
+              disabled={isUploading}
+
+              asChild
+>
+<span>
+<Upload className="h-3 w-3" />
+
+                {isUploading ? 'Uploading...' : 'Upload'}
+</span>
+</Button>
 <input
 
-          type="file"
+              id="file-upload"
 
-          multiple
+              type="file"
 
-          onChange={handleFileUpload}
+              className="hidden"
 
-          className="hidden"
+              onChange={handleFileUpload}
 
-          id="file-upload"
+              accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.pptx,.md"
 
-          disabled={uploading}
+            />
+</label>
+</div>
 
-        />
-<Button
+        {/* Search */}
+<div className="relative">
+<Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+<Input
 
-          variant="outline"
+            placeholder="Search files..."
 
-          size="sm"
+            value={searchQuery}
 
-          disabled={uploading}
+            onChange={(e) => setSearchQuery(e.target.value)}
 
-          onClick={() => document.getElementById('file-upload')?.click()}
->
-<Upload className="h-4 w-4 mr-2" />
+            className="pl-10 h-9"
 
-          {uploading ? 'Uploading...' : 'Upload Files'}
-</Button>
+          />
+</div>
 </div>
  
+      {/* Selected Files Summary */}
+
       {selectedFiles.length > 0 && (
-<Card className="p-3">
-<div className="text-sm font-medium mb-2">Selected Files ({selectedFiles.length})</div>
-<div className="flex flex-wrap gap-1">
+<div className="p-3 bg-primary/5 border-b border-border">
+<div className="text-sm text-primary font-medium">
 
-            {selectedFiles.map(file => (
-<Badge key={file.id} variant="secondary" className="text-xs">
-
-                {file.filename}
-</Badge>
-
-            ))}
+            {selectedFiles.length} file{selectedFiles.length === 1 ? '' : 's'} selected
 </div>
-</Card>
+</div>
 
       )}
  
-      <div className="space-y-2 max-h-96 overflow-y-auto">
+      {/* Files List */}
+<ScrollArea className="flex-1">
+<div className="p-3 space-y-2">
 
-        {files.map((file) => (
-<Card key={file.id} className="p-3">
-<div className="flex items-center gap-3">
-<Checkbox
+          {filteredFiles.length === 0 ? (
+<div className="text-center py-8">
+<div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mx-auto mb-3">
+<FileText className="h-6 w-6 text-muted-foreground" />
+</div>
+<p className="text-sm text-muted-foreground">
 
-                checked={selectedFiles.some(f => f.id === file.id)}
+                {searchQuery ? 'No files found' : 'No files uploaded yet'}
+</p>
+</div>
 
-                onCheckedChange={(checked) => handleFileSelect(file, checked as boolean)}
+          ) : (
 
-              />
-<File className="h-4 w-4 text-muted-foreground" />
-<div className="flex-1 min-w-0">
-<div className="text-sm font-medium truncate">{file.filename}</div>
-<div className="text-xs text-muted-foreground">
+            filteredFiles.map((file) => (
+<Card
 
-                  {formatFileSize(file.file_size)} • {file.file_type}
+                key={file.id}
+
+                className={`p-3 cursor-pointer transition-all duration-200 hover:shadow-sm ${
+
+                  selectedFiles.includes(file.name)
+
+                    ? 'bg-primary/10 border-primary'
+
+                    : 'hover:bg-muted/50'
+
+                }`}
+
+                onClick={() => toggleFileSelection(file.name)}
+>
+<div className="space-y-2">
+<div className="flex items-start justify-between">
+<div className="flex items-center gap-2 min-w-0 flex-1">
+
+                      {getFileIcon(file.type)}
+<div className="min-w-0 flex-1">
+<p className="text-sm font-medium text-foreground truncate">
+
+                          {file.name}
+</p>
+<p className="text-xs text-muted-foreground">
+
+                          {file.size}
+</p>
 </div>
 </div>
- 
-              <div className="flex items-center gap-1">
+<div className="flex items-center gap-1 ml-2">
 <Button
 
-                  variant="ghost"
+                        variant="ghost"
 
-                  size="icon"
+                        size="sm"
 
-                  className="h-8 w-8"
+                        className="h-6 w-6 p-0"
 
-                  onClick={() => toast({ title: "Info", description: "File preview not available in demo mode" })}
+                        onClick={(e) => {
+
+                          e.stopPropagation();
+
+                          window.open(filesApi.getFilePreviewUrl(file.id), '_blank');
+
+                        }}
 >
 <Eye className="h-3 w-3" />
 </Button>
 <Button
 
-                  variant="ghost"
+                        variant="ghost"
 
-                  size="icon"
+                        size="sm"
 
-                  className="h-8 w-8 text-destructive"
+                        className="h-6 w-6 p-0 hover:bg-destructive/20"
 
-                  onClick={() => handleDeleteFile(file.id)}
+                        onClick={(e) => {
+
+                          e.stopPropagation();
+
+                          handleDeleteFile(file.id);
+
+                        }}
 >
 <Trash2 className="h-3 w-3" />
 </Button>
 </div>
 </div>
+ 
+                  <div className="flex items-center justify-between">
+<div className="flex gap-1">
+<Badge variant="outline" className="text-xs">
+
+                        {file.type.toUpperCase()}
+</Badge>
+
+                      {file.pages && (
+<Badge variant="outline" className="text-xs">
+
+                          {file.pages} pages
+</Badge>
+
+                      )}
+</div>
+<span className="text-xs text-muted-foreground">
+
+                      {new Date(file.uploadDate).toLocaleDateString()}
+</span>
+</div>
+</div>
 </Card>
 
-        ))}
+            ))
+
+          )}
 </div>
+</ScrollArea>
  
-      {files.length === 0 && !uploading && (
-<div className="text-center py-8 text-sm text-muted-foreground">
+      {/* Upload Area */}
+<div className="p-3 border-t border-border">
+<label htmlFor="file-upload-area">
+<div className="border-2 border-dashed border-muted-foreground/30 rounded-lg p-4 text-center hover:border-muted-foreground/50 transition-colors cursor-pointer">
+<Upload className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
+<p className="text-xs text-muted-foreground">
 
-          No files uploaded yet. Upload some files to get started.
+              Drop files here or click to upload
+</p>
 </div>
+<input
 
-      )}
+            id="file-upload-area"
+
+            type="file"
+
+            className="hidden"
+
+            onChange={handleFileUpload}
+
+            accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.xlsx,.pptx,.md"
+
+          />
+</label>
+</div>
 </div>
 
   );
